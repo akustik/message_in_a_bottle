@@ -1,8 +1,8 @@
 language: rust
 rust:
 - stable
-#- beta
-#- nightly
+- beta
+- nightly
 jobs:
   allow_failures:
   - rust: nightly
@@ -14,6 +14,7 @@ deploy:
   script: bash docker_push
   on:
     branch: master
+    rust: stable
 env:
   global:
   - secure: qoyuQl40eSzYnyJjiY6NRJ0HJmaB8DwitEOD8/ril//6pw/qatqXzpDkmeBEpbvccQLHH+UQ621i4noUYKWYNS/FsjmpQw7ippxwBbrqNYbmKIY+ANjQrCsUjGcfJH14x/FcVrku2vLguxiJqDEb+S9ZjIHRZb0G/V+54Ey7Ck1ScGdEB7nLkhjYvHaT73lFRzqSSD84z6NJnCgyUUzDkl8qTXahCEYCqxzWLMlESK/0y91W76MRbP64Ub1worzJcwQjImL4FDzOXKFsa07m7WQ+bfqk6r1wO2Ro4Yos4LxCjTVSZvuztZ6wpwZKvy8FW5L9rVDARk3Wn2R2gxMiWPGU4pbSJpP3bvTMVjYErBxc4PVrEyuCIoHlgVWKd+JhawzTyrz8Od0A8i9MTBijX/xSrmOP2iOgP1/yyPo2kkxjBkXUTVuMhoRdrIOfpsWqb2JcAehNZQZw0OVsts9bJrMYH+ctlrThn26ueFB/rvWvaPSiRBKlFxkX2KKLqsiXcA/vxIhYirvQAeFqtRsMZEjiVmIvYbXk0umhQKp2Miy7DApZHWMGAZVuZ85bmVKleKpBq5nzeXfpdUZ8TftnoWKiaqVoxgyXjV+47Q/6+fp873F9tfuv0boAm1fzCkqiED6gWdp+c3aPsqMdH3UnXU+MRKGAZNdCTCJxUAX7JBs=

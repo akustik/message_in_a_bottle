@@ -1,19 +1,20 @@
 language: rust
-
 rust:
-  - stable
-  - beta
-  - nightly
+- stable
+- beta
+- nightly
 jobs:
   allow_failures:
-    - rust: nightly
+  - rust: nightly
   fast_finish: true
-
 services:
-  - docker
-
+- docker
 deploy:
   provider: script
   script: bash docker_push
   on:
     branch: master
+env:
+  global:
+  - secure: qoyuQl40eSzYnyJjiY6NRJ0HJmaB8DwitEOD8/ril//6pw/qatqXzpDkmeBEpbvccQLHH+UQ621i4noUYKWYNS/FsjmpQw7ippxwBbrqNYbmKIY+ANjQrCsUjGcfJH14x/FcVrku2vLguxiJqDEb+S9ZjIHRZb0G/V+54Ey7Ck1ScGdEB7nLkhjYvHaT73lFRzqSSD84z6NJnCgyUUzDkl8qTXahCEYCqxzWLMlESK/0y91W76MRbP64Ub1worzJcwQjImL4FDzOXKFsa07m7WQ+bfqk6r1wO2Ro4Yos4LxCjTVSZvuztZ6wpwZKvy8FW5L9rVDARk3Wn2R2gxMiWPGU4pbSJpP3bvTMVjYErBxc4PVrEyuCIoHlgVWKd+JhawzTyrz8Od0A8i9MTBijX/xSrmOP2iOgP1/yyPo2kkxjBkXUTVuMhoRdrIOfpsWqb2JcAehNZQZw0OVsts9bJrMYH+ctlrThn26ueFB/rvWvaPSiRBKlFxkX2KKLqsiXcA/vxIhYirvQAeFqtRsMZEjiVmIvYbXk0umhQKp2Miy7DApZHWMGAZVuZ85bmVKleKpBq5nzeXfpdUZ8TftnoWKiaqVoxgyXjV+47Q/6+fp873F9tfuv0boAm1fzCkqiED6gWdp+c3aPsqMdH3UnXU+MRKGAZNdCTCJxUAX7JBs=
+  - secure: q15EcYVcW9q4EL1dkZOUaCe7xJJRXkCL9WH6pXHFLZ6BIgVWPgOMchL8VOD+f2KUr7GZRGWZBxMY8HaQOmn2s2c1Y6Xzdgo4ymqWu6qeEV02/rdszQi2/g3MIsCBck+qPeMOG1WnDhuqWbHNcPn/CCjXrO+wH7IeStussvubuPkt5OaWoYBTbEItbeHCpPXGjP4hJludg9A+bIzaRR3S9xNf+vt9g8BGmbtYcxSK+F3eRLhrbJ19uoiZPtGJJ5CX9MLkyEPiEshkDD3YcYCSKj1e85bygqGEkpVHKAKXC6JExQhXAJEILCWYwMmDcO9Yn4mNi76gtG/2kWwzdDCmbvCvgr8GhqEukITKH9p4MhuUMT5dnjKVzqudDzXWRDB8KtMlKYrIm7fgRN0Xpa7LMTzuDG2qyH0GcW6LJXXXTiBeiiAhYmXf3/tbC7Yb0sddk2nY1OblnENUrBeI1dA7zogGfeucu9JjFRRMtNNisaq76/YuMEQN75yLB4EAtOZeupyOj3Yx6LFpiRcVpBr+DNYGHii6j4KQtH0GPlaW2L1sq1PrljGyWa18DsSx9MGRhBItIVrS1apeT6RMM1AOzlcbzGuV1XCPtBG80mDavewdjYCZz/2C71UbCBzBAjzTA0HA/POvSEq/SxScuSqtHPgdUBJnwpxBAIMtuwMqVxo=

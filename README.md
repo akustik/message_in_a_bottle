@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/akustik/message_in_a_bottle.svg?branch=master)](https://travis-ci.org/akustik/message_in_a_bottle)
+
 # message_in_a_bottle
 
 ## Docker deployment in Heroku

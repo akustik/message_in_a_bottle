@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 use std::env;
+use std::net;
 use futures_util::TryStreamExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -52,13 +53,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let default_port = String::from("3000");
-
-    let args: Vec<String> = env::args().collect();
-    let port =  args.get(1).unwrap_or(&default_port);
-    let port: u16 = port.parse().expect(&format!("Invalid port: {}", port));
-
-    let addr = ([0, 0, 0, 0], port).into();
+    let addr = get_addr_from_args(&env::args().collect());
 
     let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
 
@@ -69,4 +64,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     server.await?;
 
     Ok(())
+}
+
+fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
+    let default_port = String::from("3000");
+    let port =  args.get(1).unwrap_or(&default_port);
+    let port: u16 = port.parse().expect(&format!("Invalid port: {}", port));
+
+    ([0, 0, 0, 0], port).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_addr_from_args_with_no_args() {
+        let expected = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)), 3000);
+        let actual = get_addr_from_args(&Vec::new());
+        
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_get_addr_from_args_with_custom_port() {
+        let expected = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)), 5000);
+        let actual = get_addr_from_args(&[String::from("program_name"), String::from("5000")].to_vec());
+        
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid port: 5aaa: ParseIntError { kind: InvalidDigit }")]
+    fn test_get_addr_from_args_with_invalid_custom_port() {
+        let expected = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)), 5000);
+        let actual = get_addr_from_args(&[String::from("program_name"), String::from("5aaa")].to_vec());
+        
+        assert_eq!(actual, expected);
+    }
+
 }

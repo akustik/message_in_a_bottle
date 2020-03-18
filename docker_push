@@ -1,0 +1,4 @@
+#!/bin/bash
+echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin registry.heroku.com
+docker build . -t registry.heroku.com/fathomless-hollows-66084/web
+docker push registry.heroku.com/fathomless-hollows-66084/web

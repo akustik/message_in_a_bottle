@@ -1,6 +1,7 @@
 extern crate redis;
 
 use std::env;
+use redis::Commands;
 use futures_util::TryStreamExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -16,7 +17,12 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
         (&Method::GET, "/health") => {
             match env::var("REDIS_URL") {
-                Ok(_) => Ok(Response::new(Body::from("All good!"))),
+                Ok(url) => {
+                    match check_redis_health(url) {
+                        Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
+                        Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                    }
+                }
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
         }
@@ -78,6 +84,12 @@ fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
 
 fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper::Error> {
     Ok(Response::builder().status(code).body(Body::from(msg)).unwrap())
+}
+
+fn check_redis_health(url: String) -> redis::RedisResult<()> {
+    let client = redis::Client::open(url)?;
+    let mut con = client.get_connection()?;
+    con.set("health", 42)
 }
 
 #[cfg(test)]

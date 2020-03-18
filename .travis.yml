@@ -18,6 +18,7 @@ jobs:
       script: ./docker_push
 
 stages:
+  - name: test
   - name: deploy
     if: branch = master
 

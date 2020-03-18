@@ -1,7 +1,7 @@
-#![deny(warnings)]
+extern crate redis;
 
 use std::env;
-use std::net;
+use redis::Commands;
 use futures_util::TryStreamExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -10,10 +10,22 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 /// path, and returns a Future of a Response.
 async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
-        // Serve some instructions at /
+
         (&Method::GET, "/") => Ok(Response::new(Body::from(
-            "Try POSTing data to /echo such as: `curl localhost:3000/echo -XPOST -d 'hello world'`",
+            "Message in a Bottle™",
         ))),
+
+        (&Method::GET, "/health") => {
+            match env::var("REDIS_URL") {
+                Ok(url) => {
+                    match check_redis_health(url) {
+                        Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
+                        Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                    }
+                }
+                Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            }
+        }
 
         // Simply echo the body back to the client.
         (&Method::POST, "/echo") => Ok(Response::new(req.into_body())),
@@ -43,11 +55,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
         }
 
         // Return the 404 Not Found for other routes.
-        _ => {
-            let mut not_found = Response::default();
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
-            Ok(not_found)
-        }
+        _ => build_response(StatusCode::NOT_FOUND, String::from("Not found"))
     }
 }
 
@@ -74,8 +82,19 @@ fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
     ([0, 0, 0, 0], port).into()
 }
 
+fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper::Error> {
+    Ok(Response::builder().status(code).body(Body::from(msg)).unwrap())
+}
+
+fn check_redis_health(url: String) -> redis::RedisResult<()> {
+    let client = redis::Client::open(url)?;
+    let mut con = client.get_connection()?;
+    con.set("health", 42)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net;
     use super::*;
 
     #[test]

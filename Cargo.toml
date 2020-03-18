@@ -1,0 +1,13 @@
+[package]
+name = "message_in_a_bottle"
+version = "0.1.0"
+authors = ["Guillem Mercadal <guillem.mercadal@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hyper = "0.13"
+tokio = { version = "0.2", features = ["full"] }
+pretty_env_logger = "0.4"
+futures-util = "0.3.4"

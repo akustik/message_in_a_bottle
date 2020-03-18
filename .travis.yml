@@ -20,7 +20,7 @@ jobs:
 stages:
   - name: test
   - name: deploy
-    if: branch = master
+    if: branch = master AND type = push AND fork = false
 
 env:
   global:

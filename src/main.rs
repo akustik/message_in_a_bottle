@@ -2,6 +2,7 @@ extern crate redis;
 
 use std::time::Duration;
 use std::sync::mpsc::{self, TryRecvError};
+use tokio::signal::unix::{signal, SignalKind};
 use serde::{Serialize, Deserialize};
 use std::env;
 use std::thread;
@@ -60,6 +61,7 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     }
 }
 
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
@@ -70,7 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let addr = get_addr_from_args(&env::args().collect());
     let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(bottle)) });
-    let server = Server::bind(&addr).serve(service);
+    let server = Server::bind(&addr)
+        .serve(service)
+        .with_graceful_shutdown(shutdown_signal());
+    
     println!("Listening on http://{}", addr);
     server.await?;
 
@@ -80,7 +85,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     handle.join().unwrap();
 
+    println!("All done, stopping.");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let stream = signal(SignalKind::terminate());
+    match stream {
+        Ok(mut s) => {
+            s.recv().await;
+        },
+        _ => {
+            println!("Unablet to set graceful shutdown");
+        }
+    }
 }
 
 fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
@@ -118,13 +136,13 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
 
             match rx.try_recv() {
                 Ok(_) | Err(TryRecvError::Disconnected) => {
-                    println!("Terminating subpub thread.");
                     break;
                 }
                 Err(TryRecvError::Empty) => {}
             }
         }
 
+        println!("Terminating thread.");
         Ok(())
     }).expect("Unable to loop for messages");
 }

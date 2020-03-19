@@ -29,23 +29,14 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
         }
 
         (&Method::GET, "/config") => {
-            execute_redis_command(|con: &mut redis::Connection| 
-                redis::cmd("CONFIG")
-                .arg("set")
-                .arg("notify-keyspace-events")
-                .arg("KEA")
-                .query(con))
-                .expect("Unable to set config");
-
             execute_redis_command(|con: &mut redis::Connection| {
                 let mut pubsub = con.as_pubsub();
-                pubsub.subscribe("*:expire");
-
-                let msg = pubsub.get_message()?;
+                pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
+                loop {
+                    let msg = pubsub.get_message()?;
                     let payload : String = msg.get_payload()?;
-                    println!("channel '{}': {}", msg.get_channel_name(), payload);
-
-                Ok(())
+                    println!("channel '{}': payload '{}'", msg.get_channel_name(), payload);
+                }
             }).expect("Unable to loop for messages");
 
             build_response(StatusCode::OK, String::from("Done"))
@@ -60,8 +51,14 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
             match parsed {
                 Ok(bottle_message) => {
                     let hash = calculate_hash(&bottle_message);
-                    let expiration_in_seconds = 60;
-                    match execute_redis_command(|con: &mut redis::Connection| con.set_ex(hash, &bottle_message.msg, expiration_in_seconds)) {
+                    let expire_hash = format!("trigger:{}", hash);
+                    let expiration_in_seconds = 1;
+                    match execute_redis_command(|con: &mut redis::Connection| {
+                        redis::pipe().atomic()
+                        .set_ex(expire_hash, "", expiration_in_seconds).ignore()
+                        .set(hash, &bottle_message.msg)
+                        .query(con)
+                    }) {
                         Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
                     }

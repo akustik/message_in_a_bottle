@@ -101,10 +101,18 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
         pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
         pubsub.set_read_timeout(Some(Duration::from_millis(5000))).expect("Unable to set read timeout");
 
+        println!("Background thread set: listening for notifications");
+
         loop {
-            let msg = pubsub.get_message()?;
-            let payload : String = msg.get_payload()?;
-            println!("channel '{}': payload '{}'", msg.get_channel_name(), payload);
+            let msg = pubsub.get_message();
+
+            match msg {
+                Ok(m) => {
+                    let payload : String = m.get_payload()?;
+                    println!("channel '{}': payload '{}'", m.get_channel_name(), payload);
+                }
+                Err(e) => println!("No notifications, {}", e)
+            }
 
             match rx.try_recv() {
                 Ok(_) | Err(TryRecvError::Disconnected) => {

@@ -28,6 +28,29 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
             }
         }
 
+        (&Method::GET, "/config") => {
+            execute_redis_command(|con: &mut redis::Connection| 
+                redis::cmd("CONFIG")
+                .arg("set")
+                .arg("notify-keyspace-events")
+                .arg("KEA")
+                .query(con))
+                .expect("Unable to set config");
+
+            execute_redis_command(|con: &mut redis::Connection| {
+                let mut pubsub = con.as_pubsub();
+                pubsub.subscribe("*:expire");
+
+                let msg = pubsub.get_message()?;
+                    let payload : String = msg.get_payload()?;
+                    println!("channel '{}': {}", msg.get_channel_name(), payload);
+
+                Ok(())
+            }).expect("Unable to loop for messages");
+
+            build_response(StatusCode::OK, String::from("Done"))
+        }
+
         (&Method::POST, "/msg") => {
             let body =  hyper::body::to_bytes(req.into_body()).await?;
             let body = body.iter().cloned().collect::<Vec<u8>>();

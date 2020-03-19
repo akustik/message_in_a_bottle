@@ -64,7 +64,7 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
                     match execute_redis_command(|con: &mut redis::Connection| {
                         redis::pipe().atomic()
                         .set_ex(expire_hash, "", expiration_in_seconds).ignore()
-                        .set(hash, &bottle_message.msg)
+                        .set_ex(hash, &bottle_message.msg, expiration_in_seconds + 60)
                         .query(con)
                     }) {
                         Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),

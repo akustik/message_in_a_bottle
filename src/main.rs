@@ -1,7 +1,10 @@
 extern crate redis;
 
+use std::time::Duration;
+use std::sync::mpsc::{self, TryRecvError};
 use serde::{Serialize, Deserialize};
 use std::env;
+use std::thread;
 use redis::Commands;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -26,28 +29,6 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
                 Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
-        }
-
-        (&Method::GET, "/config") => {
-            execute_redis_command(|con: &mut redis::Connection| {
-                let config: redis::RedisResult<()> = redis::cmd("CONFIG")
-                .arg("SET")
-                .arg("notify-keyspace-events")
-                .arg("Exg")
-                .query(con);
-
-                println!("config :set notify-keyspace-events Exg: '{}'", config.is_ok());
-  
-                let mut pubsub = con.as_pubsub();
-                pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
-                loop {
-                    let msg = pubsub.get_message()?;
-                    let payload : String = msg.get_payload()?;
-                    println!("channel '{}': payload '{}'", msg.get_channel_name(), payload);
-                }
-            }).expect("Unable to loop for messages");
-
-            build_response(StatusCode::OK, String::from("Done"))
         }
 
         (&Method::POST, "/msg") => {
@@ -81,17 +62,61 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (tx, rx) = mpsc::channel::<String>();
+
+    let handle = thread::spawn(move || {
+        listen_to_redis_expiration_notifications(rx);
+    });
+
     let addr = get_addr_from_args(&env::args().collect());
-
     let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(bottle)) });
-
     let server = Server::bind(&addr).serve(service);
-
     println!("Listening on http://{}", addr);
-
     server.await?;
 
+    tx.send(String::from("Die")).expect("Unable to send dead letter to background thread");
+
+    handle.join().unwrap();
+
     Ok(())
+}
+
+fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
+    execute_redis_command(|con: &mut redis::Connection| {
+        let config_parameter = "notify-keyspace-events";
+        let config_value = "Exg";
+        let config: redis::RedisResult<()> = redis::cmd("CONFIG")
+        .arg("SET")
+        .arg(config_parameter)
+        .arg(config_value)
+        .query(con);
+
+        println!("config :set {} {}: '{}'", 
+            config_parameter, 
+            config_value, 
+            config.is_ok()
+        );
+
+        let mut pubsub = con.as_pubsub();
+        pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
+        pubsub.set_read_timeout(Some(Duration::from_millis(5000))).expect("Unable to set read timeout");
+
+        loop {
+            let msg = pubsub.get_message()?;
+            let payload : String = msg.get_payload()?;
+            println!("channel '{}': payload '{}'", msg.get_channel_name(), payload);
+
+            match rx.try_recv() {
+                Ok(_) | Err(TryRecvError::Disconnected) => {
+                    println!("Terminating subpub thread.");
+                    break;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+
+        Ok(())
+    }).expect("Unable to loop for messages");
 }
 
 fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {

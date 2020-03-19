@@ -1,60 +1,80 @@
 extern crate redis;
 
+use serde::{Serialize, Deserialize};
 use std::env;
 use redis::Commands;
-use futures_util::TryStreamExt;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
+
+#[derive(Serialize, Deserialize, Debug, Hash)]
+struct BottleMessage {
+    msg: String
+}
+
 /// This is our service handler. It receives a Request, routes on its
 /// path, and returns a Future of a Response.
-async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
 
-        (&Method::GET, "/") => Ok(Response::new(Body::from(
-            "Message in a Bottle™",
-        ))),
+        (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
 
         (&Method::GET, "/health") => {
-            match env::var("REDIS_URL") {
-                Ok(url) => {
-                    match check_redis_health(url) {
-                        Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
-                        Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                    }
-                }
+            match execute_redis_command(|con: &mut redis::Connection| con.set_ex("health", 42, 1)) {
+                Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
         }
 
-        // Simply echo the body back to the client.
-        (&Method::POST, "/echo") => Ok(Response::new(req.into_body())),
+        (&Method::GET, "/config") => {
+            execute_redis_command(|con: &mut redis::Connection| {
+                let config: redis::RedisResult<()> = redis::cmd("CONFIG")
+                .arg("SET")
+                .arg("notify-keyspace-events")
+                .arg("Exg")
+                .query(con);
 
-        // Convert to uppercase before sending back to client using a stream.
-        (&Method::POST, "/echo/uppercase") => {
-            let chunk_stream = req.into_body().map_ok(|chunk| {
-                chunk
-                    .iter()
-                    .map(|byte| byte.to_ascii_uppercase())
-                    .collect::<Vec<u8>>()
-            });
-            Ok(Response::new(Body::wrap_stream(chunk_stream)))
+                println!("config :set notify-keyspace-events Exg: '{}'", config.is_ok());
+  
+                let mut pubsub = con.as_pubsub();
+                pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
+                loop {
+                    let msg = pubsub.get_message()?;
+                    let payload : String = msg.get_payload()?;
+                    println!("channel '{}': payload '{}'", msg.get_channel_name(), payload);
+                }
+            }).expect("Unable to loop for messages");
+
+            build_response(StatusCode::OK, String::from("Done"))
         }
 
-        // Reverse the entire body before sending back to the client.
-        //
-        // Since we don't know the end yet, we can't simply stream
-        // the chunks as they arrive as we did with the above uppercase endpoint.
-        // So here we do `.await` on the future, waiting on concatenating the full body,
-        // then afterwards the content can be reversed. Only then can we return a `Response`.
-        (&Method::POST, "/echo/reversed") => {
-            let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+        (&Method::POST, "/msg") => {
+            let body =  hyper::body::to_bytes(req.into_body()).await?;
+            let body = body.iter().cloned().collect::<Vec<u8>>();
+            let body = std::str::from_utf8(&body).expect("Unable to parse body");
+            let parsed: Result<BottleMessage, serde_json::error::Error> = serde_json::from_str(body);
 
-            let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
-            Ok(Response::new(Body::from(reversed_body)))
+            match parsed {
+                Ok(bottle_message) => {
+                    let hash = calculate_hash(&bottle_message);
+                    let expire_hash = format!("trigger:{}", hash);
+                    let expiration_in_seconds = 1;
+                    match execute_redis_command(|con: &mut redis::Connection| {
+                        redis::pipe().atomic()
+                        .set_ex(expire_hash, "", expiration_in_seconds).ignore()
+                        .set_ex(hash, &bottle_message.msg, expiration_in_seconds + 60)
+                        .query(con)
+                    }) {
+                        Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),
+                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
+                    }
+                },
+                Err(_) => build_response(StatusCode::BAD_REQUEST, String::from("Invalid bottle"))
+            }
         }
 
-        // Return the 404 Not Found for other routes.
         _ => build_response(StatusCode::NOT_FOUND, String::from("Not found"))
     }
 }
@@ -63,7 +83,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = get_addr_from_args(&env::args().collect());
 
-    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(bottle)) });
 
     let server = Server::bind(&addr).serve(service);
 
@@ -83,13 +103,20 @@ fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
 }
 
 fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper::Error> {
-    Ok(Response::builder().status(code).body(Body::from(msg)).unwrap())
+    Ok(Response::builder().header("Content-Type", "text/plain; charset=utf-8").status(code).body(Body::from(msg)).unwrap())
 }
 
-fn check_redis_health(url: String) -> redis::RedisResult<()> {
+fn execute_redis_command<C>(command: C) -> redis::RedisResult<()> where C: FnOnce(&mut redis::Connection) -> redis::RedisResult<()> {
+    let url = env::var("REDIS_URL").expect("$REDIS_URL");
     let client = redis::Client::open(url)?;
     let mut con = client.get_connection()?;
-    con.set("health", 42)
+    command(&mut con)
+}
+
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }
 
 #[cfg(test)]

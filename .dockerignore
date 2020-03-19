@@ -1,1 +1,8 @@
-.git
+# Ignore everything
+*
+
+# Allow files and folders with a pattern starting with !
+!src
+!target/debug/message_in_a_bottle
+!target/release/message_in_a_bottle
+!Cargo.toml

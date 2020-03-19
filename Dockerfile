@@ -13,7 +13,7 @@ RUN mkdir -p /build-out
 RUN cp target/release/message_in_a_bottle /build-out/
 
 # Run
-FROM alpine
+FROM alpine:3.11.3
 
 RUN apk add --no-cache gcc
 COPY --from=build /build-out/message_in_a_bottle /

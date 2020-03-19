@@ -37,7 +37,8 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
             match parsed {
                 Ok(bottle_message) => {
                     let hash = calculate_hash(&bottle_message);
-                    match execute_redis_command(|con: &mut redis::Connection| con.set(hash, &bottle_message.msg)) {
+                    let expiration_in_seconds = 60;
+                    match execute_redis_command(|con: &mut redis::Connection| con.set_ex(hash, &bottle_message.msg, expiration_in_seconds)) {
                         Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
                     }

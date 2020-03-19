@@ -3,7 +3,7 @@ version: '3.1'
 services:
 
   redis:
-    build: docker/redis
+    image: redis:5.0-alpine
 
   web:
     build: 

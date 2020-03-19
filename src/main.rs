@@ -36,7 +36,7 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
                 .arg("Exg")
                 .query(con);
 
-                println!("config set notify-keyspace-events xE: '{}'", config.is_ok());
+                println!("config :set notify-keyspace-events Exg: '{}'", config.is_ok());
   
                 let mut pubsub = con.as_pubsub();
                 pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");

@@ -22,7 +22,7 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
         (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
 
         (&Method::GET, "/health") => {
-            match execute_redis_command(|con: &mut redis::Connection| con.set("health", 42)) {
+            match execute_redis_command(|con: &mut redis::Connection| con.set_ex("health", 42, 1)) {
                 Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }

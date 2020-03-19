@@ -13,4 +13,4 @@ services:
     ports:
       - 8080:$PORT
     environment:
-      REDIS_URL: redis://redis:6379
+      REDISCLOUD_URL: redis://redis:6379

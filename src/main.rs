@@ -107,7 +107,7 @@ fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper
 }
 
 fn execute_redis_command<C>(command: C) -> redis::RedisResult<()> where C: FnOnce(&mut redis::Connection) -> redis::RedisResult<()> {
-    let url = env::var("REDIS_URL").expect("$REDIS_URL");
+    let url = env::var("REDISCLOUD_URL").expect("$REDISCLOUD_URL");
     let client = redis::Client::open(url)?;
     let mut con = client.get_connection()?;
     command(&mut con)

@@ -74,6 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Listening on http://{}", addr);
     server.await?;
 
+    println!("Shutting down...");
+
     tx.send(String::from("Die")).expect("Unable to send dead letter to background thread");
 
     handle.join().unwrap();

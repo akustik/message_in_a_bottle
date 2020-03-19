@@ -1,0 +1,6 @@
+# Debug
+FROM ubuntu:18.04
+
+COPY ./target/debug/message_in_a_bottle /bin
+
+CMD /bin/message_in_a_bottle ${PORT}

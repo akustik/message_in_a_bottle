@@ -30,6 +30,14 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
         (&Method::GET, "/config") => {
             execute_redis_command(|con: &mut redis::Connection| {
+                let config: redis::RedisResult<()> = redis::cmd("CONFIG")
+                .arg("SET")
+                .arg("notify-keyspace-events")
+                .arg("Exg")
+                .query(con);
+
+                println!("config set notify-keyspace-events xE: '{}'", config.is_ok());
+  
                 let mut pubsub = con.as_pubsub();
                 pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
                 loop {

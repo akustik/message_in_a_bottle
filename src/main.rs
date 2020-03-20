@@ -59,8 +59,11 @@ async fn bottle(req: Request<Body>, storage: RedisStorage) -> Result<Response<Bo
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
 
+    //FIXME: Find a way to share the same instance in case we want a thread pool, i.e: Arc
+    //https://doc.rust-lang.org/std/sync/struct.Arc.html
+
     let storage = RedisStorage{};
-    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
+    let handle = thread::spawn(move || storage.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
     let service = make_service_fn(|_| async move { 
         Ok::<_, hyper::Error>(service_fn(move |req| bottle(req, storage))) 

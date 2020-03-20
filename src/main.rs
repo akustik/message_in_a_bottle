@@ -26,7 +26,10 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
         (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
 
         (&Method::GET, "/health") => {
-            match execute_redis_command(|con: &mut redis::Connection| con.set_ex("health", 42, 1)) {
+            let result: redis::RedisResult<String> = execute_redis_command(|con: &mut redis::Connection| {
+                redis::cmd("SETEX").arg("health").arg(1).arg(42).query(con)
+            });
+            match result {
                 Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
@@ -42,15 +45,20 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
                 Ok(bottle_message) => {
                     let hash = calculate_hash(&bottle_message);
                     let expire_hash = format!("trigger:{}", hash);
-                    let expiration_in_seconds = 1;
-                    match execute_redis_command(|con: &mut redis::Connection| {
+                    let trigger_expiration_in_seconds: usize = 1;
+                    let key_expiration_in_seconds: usize = 60;
+                    let result: redis::RedisResult<()> = execute_redis_command(|con: &mut redis::Connection| {
                         redis::pipe().atomic()
-                        .set_ex(expire_hash, "", expiration_in_seconds).ignore()
-                        .set_ex(hash, &bottle_message.msg, expiration_in_seconds + 60)
+                        .set_ex(expire_hash, "", trigger_expiration_in_seconds)
+                        .set_ex(hash, &bottle_message.msg, key_expiration_in_seconds)
                         .query(con)
-                    }) {
+                    });
+                    match result {
                         Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),
-                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
+                        Err(e) => {
+                            println!("Error while setting a msg: '{}'", e);
+                            build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
+                        }
                     }
                 },
                 Err(_) => build_response(StatusCode::BAD_REQUEST, String::from("Invalid bottle"))
@@ -118,7 +126,7 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
         );
 
         let mut pubsub = con.as_pubsub();
-        pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
+        pubsub.psubscribe("__keyevent@0__:expired").expect("Subscription failed");
         pubsub.set_read_timeout(Some(Duration::from_millis(5000))).expect("Unable to set read timeout");
 
         println!("Background thread set: listening for notifications");
@@ -130,6 +138,12 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
                 Ok(m) => {
                     let payload : String = m.get_payload()?;
                     println!("channel '{}': payload '{}'", m.get_channel_name(), payload);
+
+                    if payload.starts_with("trigger:") {
+                        let key = payload.replace("trigger:", "");
+                        let msg: String = execute_redis_command(|con2: &mut redis::Connection| con2.get(key))?;
+                        println!("retrieved msg '{}'", msg);
+                    }
                 }
                 Err(e) => println!("No notifications, {}", e)
             }
@@ -143,7 +157,7 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
         }
 
         println!("Terminating thread.");
-        Ok(())
+        Ok(String::from("Terminated"))
     }).expect("Unable to loop for messages");
 }
 
@@ -159,7 +173,7 @@ fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper
     Ok(Response::builder().header("Content-Type", "text/plain; charset=utf-8").status(code).body(Body::from(msg)).unwrap())
 }
 
-fn execute_redis_command<C>(command: C) -> redis::RedisResult<()> where C: FnOnce(&mut redis::Connection) -> redis::RedisResult<()> {
+fn execute_redis_command<T, C: FnOnce(&mut redis::Connection) -> redis::RedisResult<T>>(command: C) -> redis::RedisResult<T> {
     let url = env::var("REDISCLOUD_URL").expect("$REDISCLOUD_URL");
     let client = redis::Client::open(url)?;
     let mut con = client.get_connection()?;

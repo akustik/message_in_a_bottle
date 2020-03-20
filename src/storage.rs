@@ -76,50 +76,53 @@ impl Storage for RedisStorage {
             let config_parameter = "notify-keyspace-events";
             let config_value = "Exg";
             
-            let _config: () = redis::cmd("CONFIG")
+            let config = redis::cmd("CONFIG")
             .arg("SET")
             .arg(config_parameter)
             .arg(config_value)
-            .query(con)
-            .expect("Unable to set redis configuration");
-    
-            println!("config :set {} {}", 
-                config_parameter, 
-                config_value
-            );
-    
+            .query(con);
+
             let mut pubsub = con.as_pubsub();
-            pubsub.psubscribe("__keyevent@0__:expired").expect("Subscription failed");
-            pubsub.set_read_timeout(Some(Duration::from_millis(5000))).expect("Unable to set read timeout");
-    
-            println!("Listening for notifications...");
-    
-            loop {
-                let msg = pubsub.get_message();
-    
-                match msg {
-                    Ok(m) => {
-                        let payload : String = m.get_payload()?;
-                        println!("channel '{}': payload '{}'", m.get_channel_name(), payload);
-    
-                        if payload.starts_with("trigger:") {
-                            let key = payload.replace("trigger:", "");
-                            let msg: String = execute_redis_command(|con2: &mut redis::Connection| con2.get(key))?;
-                            notification_channel.notify(msg);
+
+            let subscription = config.and_then(|_: ()| {
+                pubsub.psubscribe("__keyevent@0__:expired")
+            }).and_then(|_| {
+                pubsub.set_read_timeout(Some(Duration::from_millis(5000)))
+            });
+
+            match subscription {
+                Ok(_) => {
+                    println!("Listening for notifications...");
+            
+                    loop {
+                        let msg = pubsub.get_message();
+            
+                        match msg {
+                            Ok(m) => {
+                                let payload : String = m.get_payload()?;
+                                println!("channel '{}': payload '{}'", m.get_channel_name(), payload);
+            
+                                if payload.starts_with("trigger:") {
+                                    let key = payload.replace("trigger:", "");
+                                    let msg: String = execute_redis_command(|con2: &mut redis::Connection| con2.get(key))?;
+                                    notification_channel.notify(msg);
+                                }
+                            }
+                            Err(e) => println!("No notifications, {}", e)
+                        }
+            
+                        match term.try_recv() {
+                            Ok(_) | Err(TryRecvError::Disconnected) => {
+                                break;
+                            }
+                            Err(TryRecvError::Empty) => {}
                         }
                     }
-                    Err(e) => println!("No notifications, {}", e)
-                }
-    
-                match term.try_recv() {
-                    Ok(_) | Err(TryRecvError::Disconnected) => {
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {}
-                }
+        
+                    Ok(())
+                },
+                Err(_) => subscription
             }
-
-            Ok(())
         });
 
         to_result(result)

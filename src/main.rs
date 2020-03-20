@@ -1,5 +1,3 @@
-
-
 mod message;
 mod storage;
 
@@ -8,7 +6,7 @@ use tokio::signal::unix::{signal, SignalKind};
 
 use std::env;
 use std::thread;
-
+use std::sync::Arc;
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -20,7 +18,7 @@ use storage::Storage;
 use storage::RedisStorage;
 
 
-async fn bottle(req: Request<Body>, storage: RedisStorage) -> Result<Response<Body>, hyper::Error> {
+async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
 
         (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
@@ -58,16 +56,23 @@ async fn bottle(req: Request<Body>, storage: RedisStorage) -> Result<Response<Bo
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
-
-    //FIXME: Find a way to share the same instance in case we want a thread pool, i.e: Arc
-    //https://doc.rust-lang.org/std/sync/struct.Arc.html
-
-    let storage = RedisStorage{};
-    let handle = thread::spawn(move || storage.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
+    
+    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
-    let service = make_service_fn(|_| async move { 
-        Ok::<_, hyper::Error>(service_fn(move |req| bottle(req, storage))) 
+
+    let storage = Arc::new(RedisStorage{});
+    let service = make_service_fn(|_| {
+        let storage = Arc::clone(&storage);
+        async move {
+            Ok::<_, hyper::Error>(service_fn(move |req| {
+                let storage = Arc::clone(&storage);
+                async move {
+                    bottle(req, &*storage).await
+                }
+            }))
+        }
     });
+
     let server = Server::bind(&addr)
         .serve(service)
         .with_graceful_shutdown(shutdown_signal());

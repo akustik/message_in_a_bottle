@@ -43,6 +43,7 @@ pub trait Storage {
     fn subscribe(&self, term: mpsc::Receiver<String>, notification_channel: &dyn NotificationChannel) -> Result<()>;
 }
 
+#[derive(Copy, Clone)]
 pub struct RedisStorage {
 
 }

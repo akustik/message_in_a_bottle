@@ -20,13 +20,13 @@ use storage::Storage;
 use storage::RedisStorage;
 
 
-async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn bottle(req: Request<Body>, storage: RedisStorage) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
 
         (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
 
         (&Method::GET, "/health") => {
-            let result = RedisStorage{}.health();
+            let result = storage.health();
             match result {
                 Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
@@ -41,7 +41,7 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
             match parsed {
                 Ok(bottle_message) => {
-                    let result = RedisStorage{}.store(bottle_message);
+                    let result = storage.store(bottle_message);
                     match result {
                         Ok(_) => build_response(StatusCode::OK, "Gotcha! ACK".to_string()),
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
@@ -55,18 +55,16 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let storage = RedisStorage{};
-    let message = SendGrid{};
-
     let (tx, rx) = mpsc::channel::<String>();
 
-    let handle = thread::spawn(move || storage.subscribe(rx, &message).expect("Subscribe failed for Storage"));
-
+    let storage = RedisStorage{};
+    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
-    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(bottle)) });
+    let service = make_service_fn(|_| async move { 
+        Ok::<_, hyper::Error>(service_fn(move |req| bottle(req, storage))) 
+    });
     let server = Server::bind(&addr)
         .serve(service)
         .with_graceful_shutdown(shutdown_signal());

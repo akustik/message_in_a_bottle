@@ -14,5 +14,6 @@ services:
       - 8080:$PORT
     environment:
       REDISCLOUD_URL: redis://redis:6379
+      SENDGRID_API_KEY: $SENDGRID_API_KEY
     depends_on: 
       - redis

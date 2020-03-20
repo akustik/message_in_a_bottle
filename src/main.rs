@@ -11,10 +11,35 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-
+use reqwest::blocking::ClientBuilder as BlockingClientBuilder;
 
 #[derive(Serialize, Deserialize, Debug, Hash)]
 struct BottleMessage {
+    msg: String
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct SendGridMessage {
+    personalizations: [SendGridMessagePersonalizations; 1],
+    from: SendGridMessageAddress,
+    reply_to: SendGridMessageAddress,
+    template_id: String
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SendGridMessageAddress {
+    email: String,
+    name: String
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct SendGridMessagePersonalizations {
+    to: [SendGridMessageAddress; 1],
+    dynamic_template_data: SendGridMessageDynamicTemplateData
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct SendGridMessageDynamicTemplateData {
     msg: String
 }
 
@@ -109,6 +134,49 @@ async fn shutdown_signal() {
     }
 }
 
+fn send_email(msg: String) {
+    let api_key = env::var("SENDGRID_API_KEY").expect("$SENDGRID_API_KEY");
+
+    let msg = SendGridMessage {
+        from: SendGridMessageAddress {
+            email: "towalkaway@gmail.com".to_string(),
+            name: "Message in a Bottle".to_string()
+        },
+        reply_to: SendGridMessageAddress {
+            email: "towalkaway@gmail.com".to_string(),
+            name: "Message in a Bottle".to_string()
+        },
+        template_id: "d-3e85b81589ac4a76947baa9b13e2dc05".to_string(),
+        personalizations: [ SendGridMessagePersonalizations {
+            to: [SendGridMessageAddress {
+                email: "towalkaway@gmail.com".to_string(),
+                name: "Message in a Bottle".to_string()
+            }],
+            dynamic_template_data: SendGridMessageDynamicTemplateData {
+                msg: msg
+            }
+        }]
+    };
+
+    let json_content = serde_json::to_string_pretty(&msg).unwrap();
+    println!("Going to send an email: {}", json_content);
+
+    let client = BlockingClientBuilder::new()
+        .danger_accept_invalid_certs(true)
+        .build().expect("Unable to create sync client");
+    
+    let response = client
+        .post("https://api.sendgrid.com/v3/mail/send")
+        .bearer_auth(api_key)
+        .json(&msg)
+        .send();
+    
+    match response {
+        Ok(r) => println!("Message sent, status: {}, response: {}", r.status(), r.text().unwrap()),
+        Err(e) => println!("Unable to send message: {}", e)
+    }   
+}
+
 fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
     execute_redis_command(|con: &mut redis::Connection| {
         let config_parameter = "notify-keyspace-events";
@@ -142,7 +210,7 @@ fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
                     if payload.starts_with("trigger:") {
                         let key = payload.replace("trigger:", "");
                         let msg: String = execute_redis_command(|con2: &mut redis::Connection| con2.get(key))?;
-                        println!("retrieved msg '{}'", msg);
+                        send_email(msg);
                     }
                 }
                 Err(e) => println!("No notifications, {}", e)

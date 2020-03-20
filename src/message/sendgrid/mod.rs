@@ -1,3 +1,5 @@
+use crate::message::NotificationChannel;
+
 use reqwest::blocking::ClientBuilder as BlockingClientBuilder;
 use serde::{Serialize, Deserialize};
 use std::env;
@@ -25,10 +27,6 @@ struct SendGridMessagePersonalizations {
 #[derive(Serialize, Deserialize, Debug)]
 struct SendGridMessageDynamicTemplateData {
     msg: String
-}
-
-pub trait NotificationChannel {
-    fn notify(&self, msg: String);
 }
 
 pub struct SendGrid {
@@ -79,5 +77,3 @@ impl NotificationChannel for SendGrid {
         }   
     }
 }
-
-

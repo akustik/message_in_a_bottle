@@ -1,6 +1,9 @@
 # Debug
 FROM ubuntu:18.04
 
+RUN apt-get update -y 
+RUN apt-get install -y libssl-dev
+
 COPY ./target/debug/message_in_a_bottle /bin
 
 CMD /bin/message_in_a_bottle ${PORT}

@@ -1,32 +1,33 @@
-extern crate redis;
 
-use std::time::Duration;
-use std::sync::mpsc::{self, TryRecvError};
+
+mod message;
+mod storage;
+
+use std::sync::mpsc;
 use tokio::signal::unix::{signal, SignalKind};
-use serde::{Serialize, Deserialize};
+
 use std::env;
 use std::thread;
-use redis::Commands;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+
+
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
+use message::SendGrid;
 
-#[derive(Serialize, Deserialize, Debug, Hash)]
-struct BottleMessage {
-    msg: String
-}
+use storage::BottleMessage;
+use storage::Storage;
+use storage::RedisStorage;
 
-/// This is our service handler. It receives a Request, routes on its
-/// path, and returns a Future of a Response.
-async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+
+async fn bottle(req: Request<Body>, storage: RedisStorage) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
 
         (&Method::GET, "/") => build_response(StatusCode::OK, String::from("Message in a Bottle™")),
 
         (&Method::GET, "/health") => {
-            match execute_redis_command(|con: &mut redis::Connection| con.set_ex("health", 42, 1)) {
+            let result = storage.health();
+            match result {
                 Ok(_) => build_response(StatusCode::OK, String::from("All good!")),
                 Err(e) => build_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
@@ -40,17 +41,10 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
             match parsed {
                 Ok(bottle_message) => {
-                    let hash = calculate_hash(&bottle_message);
-                    let expire_hash = format!("trigger:{}", hash);
-                    let expiration_in_seconds = 1;
-                    match execute_redis_command(|con: &mut redis::Connection| {
-                        redis::pipe().atomic()
-                        .set_ex(expire_hash, "", expiration_in_seconds).ignore()
-                        .set_ex(hash, &bottle_message.msg, expiration_in_seconds + 60)
-                        .query(con)
-                    }) {
-                        Ok(_) => build_response(StatusCode::OK, String::from(format!("Gotcha! ACK {}", hash))),
-                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, String::from("Something went wrong"))
+                    let result = storage.store(bottle_message);
+                    match result {
+                        Ok(_) => build_response(StatusCode::OK, "Gotcha! ACK".to_string()),
+                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
                     }
                 },
                 Err(_) => build_response(StatusCode::BAD_REQUEST, String::from("Invalid bottle"))
@@ -61,17 +55,16 @@ async fn bottle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
 
-    let handle = thread::spawn(move || {
-        listen_to_redis_expiration_notifications(rx);
-    });
-
+    let storage = RedisStorage{};
+    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
-    let service = make_service_fn(|_| async { Ok::<_, hyper::Error>(service_fn(bottle)) });
+    let service = make_service_fn(|_| async move { 
+        Ok::<_, hyper::Error>(service_fn(move |req| bottle(req, storage))) 
+    });
     let server = Server::bind(&addr)
         .serve(service)
         .with_graceful_shutdown(shutdown_signal());
@@ -101,52 +94,6 @@ async fn shutdown_signal() {
     }
 }
 
-fn listen_to_redis_expiration_notifications(rx: mpsc::Receiver<String>) {
-    execute_redis_command(|con: &mut redis::Connection| {
-        let config_parameter = "notify-keyspace-events";
-        let config_value = "Exg";
-        let config: redis::RedisResult<()> = redis::cmd("CONFIG")
-        .arg("SET")
-        .arg(config_parameter)
-        .arg(config_value)
-        .query(con);
-
-        println!("config :set {} {}: '{}'", 
-            config_parameter, 
-            config_value, 
-            config.is_ok()
-        );
-
-        let mut pubsub = con.as_pubsub();
-        pubsub.psubscribe("__keyevent@0__:expire").expect("Subscription failed");
-        pubsub.set_read_timeout(Some(Duration::from_millis(5000))).expect("Unable to set read timeout");
-
-        println!("Background thread set: listening for notifications");
-
-        loop {
-            let msg = pubsub.get_message();
-
-            match msg {
-                Ok(m) => {
-                    let payload : String = m.get_payload()?;
-                    println!("channel '{}': payload '{}'", m.get_channel_name(), payload);
-                }
-                Err(e) => println!("No notifications, {}", e)
-            }
-
-            match rx.try_recv() {
-                Ok(_) | Err(TryRecvError::Disconnected) => {
-                    break;
-                }
-                Err(TryRecvError::Empty) => {}
-            }
-        }
-
-        println!("Terminating thread.");
-        Ok(())
-    }).expect("Unable to loop for messages");
-}
-
 fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
     let default_port = String::from("3000");
     let port =  args.get(1).unwrap_or(&default_port);
@@ -157,19 +104,6 @@ fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {
 
 fn build_response(code: StatusCode, msg: String) -> Result<Response<Body>, hyper::Error> {
     Ok(Response::builder().header("Content-Type", "text/plain; charset=utf-8").status(code).body(Body::from(msg)).unwrap())
-}
-
-fn execute_redis_command<C>(command: C) -> redis::RedisResult<()> where C: FnOnce(&mut redis::Connection) -> redis::RedisResult<()> {
-    let url = env::var("REDISCLOUD_URL").expect("$REDISCLOUD_URL");
-    let client = redis::Client::open(url)?;
-    let mut con = client.get_connection()?;
-    command(&mut con)
-}
-
-fn calculate_hash<T: Hash>(t: &T) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    s.finish()
 }
 
 #[cfg(test)]

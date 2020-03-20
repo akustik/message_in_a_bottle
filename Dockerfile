@@ -1,7 +1,7 @@
 # Build 
 FROM rust:1.42-alpine as build
 
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev libressl-dev
 
 COPY ./ ./
 
@@ -15,7 +15,7 @@ RUN cp target/release/message_in_a_bottle /build-out/
 # Run
 FROM alpine:3.11.3
 
-RUN apk add --no-cache gcc
+RUN apk add --no-cache gcc libressl-dev
 COPY --from=build /build-out/message_in_a_bottle /
 
 RUN adduser -D myuser

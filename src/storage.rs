@@ -2,7 +2,6 @@ extern crate redis;
 
 use redis::Commands;
 
-use std::env;
 use std::error;
 use std::fmt;
 use std::time::Duration;
@@ -14,6 +13,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::message::NotificationChannel;
+use crate::util::env_or_fail;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -141,7 +141,7 @@ fn to_result<T>(result: redis::RedisResult<T>) -> Result<T> {
 }
 
 fn execute_redis_command<T, C: FnOnce(&mut redis::Connection) -> redis::RedisResult<T>>(command: C) -> redis::RedisResult<T> {
-    let url = env::var("REDISCLOUD_URL").expect("$REDISCLOUD_URL");
+    let url = env_or_fail("REDISCLOUD_URL");
     let client = redis::Client::open(url)?;
     let mut con = client.get_connection()?;
     command(&mut con)

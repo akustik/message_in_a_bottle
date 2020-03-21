@@ -1,8 +1,8 @@
 use crate::message::NotificationChannel;
+use crate::message::BlockingClientBuilder;
+use crate::util::env_or_fail;
 
-use reqwest::blocking::ClientBuilder as BlockingClientBuilder;
 use serde::{Serialize, Deserialize};
-use std::env;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SendGridMessage {
@@ -35,7 +35,7 @@ pub struct SendGrid {
 
 impl NotificationChannel for SendGrid {
     fn notify(&self, msg: String) {
-        let api_key = env::var("SENDGRID_API_KEY").expect("$SENDGRID_API_KEY");
+        let api_key = env_or_fail("SENDGRID_API_KEY");
     
         let msg = SendGridMessage {
             from: SendGridMessageAddress {

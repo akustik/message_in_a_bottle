@@ -14,13 +14,12 @@ pub struct Mailgun {
 }
 
 impl NotificationChannel for Mailgun {
-    fn notify(&self, msg: String) {
+    fn notify(&self, dest: String, msg: String) {
         let domain = env_or_fail("MAILGUN_DOMAIN");
         let from = env_or_fail("MAILGUN_SMTP_LOGIN");
         let api_key = env_or_fail("MAILGUN_API_KEY");
 
         let url = format!("https://api.mailgun.net/v3/{}/messages", domain);
-        let to = "towalkaway@gmail.com";
         let subject = "🍾 You got a message in a bottle!";
         let template = "msg-in-a-bottle-v1";
 
@@ -28,7 +27,7 @@ impl NotificationChannel for Mailgun {
 
         let form = reqwest::blocking::multipart::Form::new()
             .text("from", from)
-            .text("to", to)
+            .text("to", dest)
             .text("subject", subject)
             .text("template", template)
             .text("h:X-Mailgun-Variables", variables_json)

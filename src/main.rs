@@ -1,5 +1,6 @@
 mod message;
 mod storage;
+mod util;
 
 use std::sync::mpsc;
 use tokio::signal::unix::{signal, SignalKind};
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
-use message::SendGrid;
+use message::DefaultChannel;
 
 use storage::BottleMessage;
 use storage::Storage;
@@ -57,7 +58,7 @@ async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<B
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
     
-    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &SendGrid{}).expect("Subscribe failed for Storage"));
+    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &DefaultChannel{}).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
 
     let storage = Arc::new(RedisStorage{});

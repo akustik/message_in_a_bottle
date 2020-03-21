@@ -11,10 +11,12 @@ use std::sync::Arc;
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::body::Bytes;
 
 use message::DefaultChannel;
 
 use storage::BottleMessage;
+use storage::BottleDestination;
 use storage::Storage;
 use storage::RedisStorage;
 
@@ -34,19 +36,33 @@ async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<B
 
         (&Method::POST, "/msg") => {
             let body =  hyper::body::to_bytes(req.into_body()).await?;
-            let body = body.iter().cloned().collect::<Vec<u8>>();
-            let body = std::str::from_utf8(&body).expect("Unable to parse body");
-            let parsed: Result<BottleMessage, serde_json::error::Error> = serde_json::from_str(body);
+            let parsed: Result<BottleMessage, serde_json::error::Error> = parse_body(&body);
 
             match parsed {
-                Ok(bottle_message) => {
-                    let result = storage.store(bottle_message);
+                Ok(m) => {
+                    let result = storage.store_message(m);
                     match result {
-                        Ok(_) => build_response(StatusCode::OK, "Gotcha! ACK".to_string()),
+                        Ok(_) => build_response(StatusCode::OK, "Message stored! ACK".to_string()),
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
                     }
                 },
                 Err(_) => build_response(StatusCode::BAD_REQUEST, String::from("Invalid bottle"))
+            }
+        }
+
+        (&Method::PUT, "/register") => {
+            let body =  hyper::body::to_bytes(req.into_body()).await?;
+            let parsed: Result<BottleDestination, serde_json::error::Error> = parse_body(&body);
+
+            match parsed {
+                Ok(d) => {
+                    let result = storage.store_destination(d);
+                    match result {
+                        Ok(_) => build_response(StatusCode::OK, "Destination stored! ACK".to_string()),
+                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
+                    }
+                },
+                Err(_) => build_response(StatusCode::BAD_REQUEST, String::from("Invalid destination"))
             }
         }
 
@@ -101,6 +117,12 @@ async fn shutdown_signal() {
             println!("Unablet to set graceful shutdown");
         }
     }
+}
+
+fn parse_body<'a, T>(bytes: &'a Bytes) -> Result<T, serde_json::error::Error> 
+where T: serde::Deserialize<'a> {
+    let s = std::str::from_utf8(bytes).expect("Unable to parse body");
+    serde_json::from_str(s)
 }
 
 fn get_addr_from_args(args: &Vec<String>) -> std::net::SocketAddr {

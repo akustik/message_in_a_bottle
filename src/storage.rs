@@ -37,16 +37,24 @@ pub struct BottleMessage {
     msg: String
 }
 
+#[derive(Serialize, Deserialize, Debug, Hash)]
+pub struct BottleDestination {
+    email: String
+}
+
 pub trait Storage {
     fn health(&self) -> Result<()>;
-    fn store(&self, msg: BottleMessage) -> Result<BottleMessage>;
+    fn store_message(&self, msg: BottleMessage) -> Result<BottleMessage>;
+    fn store_destination(&self, dest: BottleDestination) -> Result<BottleDestination>;
     fn subscribe(&self, term: mpsc::Receiver<String>, notification_channel: &dyn NotificationChannel) -> Result<()>;
 }
 
 #[derive(Copy, Clone)]
 pub struct RedisStorage {
-
+   
 }
+
+const DESTINATIONS: &str = "destinations";
 
 impl Storage for RedisStorage {
     fn health(&self) -> Result<()> {
@@ -57,8 +65,8 @@ impl Storage for RedisStorage {
         to_result(result)
     }
 
-    fn store(&self, bottle: BottleMessage) -> Result<BottleMessage> {
-        let hash = calculate_hash(&bottle);
+    fn store_message(&self, bottle: BottleMessage) -> Result<BottleMessage> {
+        let hash = format!("msg-{}", calculate_hash(&bottle));
         let expire_hash = format!("trigger:{}", hash);
         let trigger_expiration_in_seconds: usize = 1;
         let key_expiration_in_seconds: usize = 60;
@@ -70,6 +78,19 @@ impl Storage for RedisStorage {
         });
 
         to_result(result.map(|_| bottle))
+    }
+
+    fn store_destination(&self, destination: BottleDestination) -> Result<BottleDestination> {
+        let hash = format!("dest-{}", calculate_hash(&destination));
+        let key_expiration_in_seconds: usize = 60;
+        let result: redis::RedisResult<()> = execute_redis_command(|con: &mut redis::Connection| {
+            redis::pipe().atomic()
+            .cmd("SADD").arg(DESTINATIONS).arg(hash.clone())
+            .set_ex(hash.clone(), &destination.email, key_expiration_in_seconds)
+            .query(con)
+        });
+
+        to_result(result.map(|_| destination))
     }
 
     fn subscribe(&self, term: mpsc::Receiver<String>, notification_channel: &dyn NotificationChannel) -> Result<()> {
@@ -105,8 +126,31 @@ impl Storage for RedisStorage {
             
                                 if payload.starts_with("trigger:") {
                                     let key = payload.replace("trigger:", "");
-                                    let msg: String = execute_redis_command(|con2: &mut redis::Connection| con2.get(key))?;
-                                    notification_channel.notify(msg);
+                                    let result = execute_redis_command(|con2: &mut redis::Connection| {
+                                        con2.get(key).and_then(|msg| {
+                                            redis::cmd("SRANDMEMBER")
+                                            .arg(DESTINATIONS).query(con2)
+                                            .and_then(|rand: String| redis::cmd("GET").arg(rand).query(con2))
+                                            .and_then(|dest| {
+                                                notification_channel.notify(dest, msg);
+                                                Ok(())
+                                            })
+                                        })
+                                    });
+
+                                    match result {
+                                        Ok(_) => println!("Message sent!"),
+                                        Err(e) => println!("There was an error while triggering the message: '{}'", e)
+                                    }
+                                } else if payload.starts_with("dest-") {
+                                    let result: redis::RedisResult<u32> = execute_redis_command(|con2: &mut redis::Connection| {
+                                        redis::cmd("SREM").arg(DESTINATIONS).arg(payload).query(con2)
+                                    });
+
+                                    match result {
+                                        Ok(r) => println!("{} destinations have been removed", r),
+                                        Err(e) => println!("There was an error while removing the target destination: '{}'", e)
+                                    }
                                 }
                             }
                             Err(e) => println!("No notifications, {}", e)

@@ -34,7 +34,7 @@ pub struct SendGrid {
 }
 
 impl NotificationChannel for SendGrid {
-    fn notify(&self, msg: String) {
+    fn notify(&self, dest: String, msg: String) {
         let api_key = env_or_fail("SENDGRID_API_KEY");
     
         let msg = SendGridMessage {
@@ -49,7 +49,7 @@ impl NotificationChannel for SendGrid {
             template_id: "d-3e85b81589ac4a76947baa9b13e2dc05".to_string(),
             personalizations: [ SendGridMessagePersonalizations {
                 to: [SendGridMessageAddress {
-                    email: "towalkaway@gmail.com".to_string(),
+                    email: dest,
                     name: "Message in a Bottle".to_string()
                 }],
                 dynamic_template_data: SendGridMessageDynamicTemplateData {

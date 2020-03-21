@@ -19,13 +19,12 @@ impl NotificationChannel for Mailgun {
         let from = env_or_fail("MAILGUN_SMTP_LOGIN");
         let api_key = env_or_fail("MAILGUN_API_KEY");
 
-        let user = format!("api:{}", api_key);
         let url = format!("https://api.mailgun.net/v3/{}/messages", domain);
         let to = "towalkaway@gmail.com";
-        let subject = "You got a message in a bottle!";
+        let subject = "🍾 You got a message in a bottle!";
         let template = "msg-in-a-bottle-v1";
 
-        let variables_json = serde_json::to_string(&msg).unwrap();
+        let variables_json = serde_json::to_string(&MailgunMessageDynamicTemplateData{msg: msg.clone()}).unwrap();
 
         let form = reqwest::blocking::multipart::Form::new()
             .text("from", from)
@@ -43,7 +42,7 @@ impl NotificationChannel for Mailgun {
         
         let response = client
             .post(&url)
-            .basic_auth("user", Some(user))
+            .basic_auth("api", Some(api_key))
             .multipart(form)
             .send();
 

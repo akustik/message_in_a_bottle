@@ -15,5 +15,8 @@ services:
     environment:
       REDISCLOUD_URL: redis://redis:6379
       SENDGRID_API_KEY: $SENDGRID_API_KEY
+      MAILGUN_DOMAIN: $MAILGUN_DOMAIN
+      MAILGUN_SMTP_LOGIN: $MAILGUN_SMTP_LOGIN
+      MAILGUN_API_KEY: $MAILGUN_API_KEY
     depends_on: 
       - redis

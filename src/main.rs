@@ -8,6 +8,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use std::env;
 use std::thread;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -50,15 +51,34 @@ async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<B
             }
         }
 
+        (&Method::GET, "/confirm") => {
+            let params: HashMap<String, String> = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes()).into_owned().collect();
+            let token = params.get("token");
+            match token {
+                Some(t) => {
+                    let result = storage.store_destination(t);
+                    match result {
+                        Ok(_) => build_response(StatusCode::OK, "Destination stored! ACK".to_string()),
+                        Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
+                    }
+                },
+                None => build_response(StatusCode::BAD_REQUEST, String::from("Token not found"))
+            }
+        }
+
         (&Method::PUT, "/register") => {
             let body =  hyper::body::to_bytes(req.into_body()).await?;
             let parsed: Result<BottleDestination, serde_json::error::Error> = parse_body(&body);
 
             match parsed {
                 Ok(d) => {
-                    let result = storage.store_destination(d);
+                    let result = storage.store_destination_request(d);
                     match result {
-                        Ok(_) => build_response(StatusCode::OK, "Destination stored! ACK".to_string()),
+                        Ok(_) => {
+                            //TODO: Send the result by email
+                            println!("Sending email with {}", result.unwrap());
+                            build_response(StatusCode::OK, "Registration requested. Check your email!".to_string())
+                        },
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
                     }
                 },

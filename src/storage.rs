@@ -11,6 +11,7 @@ use serde::{Serialize, Deserialize};
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use uuid::Uuid;
 
 use crate::message::NotificationChannel;
 use crate::util::env_or_fail;
@@ -45,7 +46,8 @@ pub struct BottleDestination {
 pub trait Storage {
     fn health(&self) -> Result<()>;
     fn store_message(&self, msg: BottleMessage) -> Result<BottleMessage>;
-    fn store_destination(&self, dest: BottleDestination) -> Result<BottleDestination>;
+    fn store_destination_request(&self, dest: BottleDestination) -> Result<String>;
+    fn store_destination(&self, token: &String) -> Result<BottleDestination>;
     fn subscribe(&self, term: mpsc::Receiver<String>, notification_channel: &dyn NotificationChannel) -> Result<()>;
 }
 
@@ -80,17 +82,40 @@ impl Storage for RedisStorage {
         to_result(result.map(|_| bottle))
     }
 
-    fn store_destination(&self, destination: BottleDestination) -> Result<BottleDestination> {
-        let hash = format!("dest-{}", calculate_hash(&destination));
-        let key_expiration_in_seconds: usize = 60;
+    fn store_destination_request(&self, destination: BottleDestination) -> Result<String> {
+        let uuid: String = Uuid::new_v4().to_string();
+        let hash = format!("req-dest-{}", uuid);
+        let key_expiration_in_seconds: usize = 24 * 3600;
+
         let result: redis::RedisResult<()> = execute_redis_command(|con: &mut redis::Connection| {
             redis::pipe().atomic()
-            .cmd("SADD").arg(DESTINATIONS).arg(hash.clone())
-            .set_ex(hash.clone(), &destination.email, key_expiration_in_seconds)
+            .set_ex(hash.clone(), destination.email, key_expiration_in_seconds)
             .query(con)
         });
 
+        to_result(result.map(|_| hash))
+    }
+
+    fn store_destination(&self, token: &String) -> Result<BottleDestination> {
+        let stored_destination: String = execute_redis_command(|con: &mut redis::Connection| {
+            redis::cmd("GET").arg(token).query(con)
+        })?;
+
+        let destination = BottleDestination {
+            email: stored_destination
+        };
+    
+        let hash = format!("dest-{}", calculate_hash(&destination));
+        let key_expiration_in_seconds: usize = 24 * 3600;
+        let result: redis::RedisResult<()> = execute_redis_command(|con: &mut redis::Connection| {
+                redis::pipe().atomic()
+                .cmd("SADD").arg(DESTINATIONS).arg(hash.clone())
+                .set_ex(hash.clone(), &destination.email, key_expiration_in_seconds)
+                .query(con)
+        });
+
         to_result(result.map(|_| destination))
+       
     }
 
     fn subscribe(&self, term: mpsc::Receiver<String>, notification_channel: &dyn NotificationChannel) -> Result<()> {

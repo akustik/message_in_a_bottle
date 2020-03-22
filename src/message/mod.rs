@@ -2,6 +2,7 @@ pub mod sendgrid;
 pub mod mailgun;
 
 pub trait NotificationChannel {
+    fn request_confirmation(&self, dest: String, confirmation_link: String);
     fn notify(&self, dest: String, msg: String);
 }
 

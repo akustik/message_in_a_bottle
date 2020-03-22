@@ -34,6 +34,10 @@ pub struct SendGrid {
 }
 
 impl NotificationChannel for SendGrid {
+    fn request_confirmation(&self, _dest: String, _confirmation_link: String) {
+        panic!("Not implemented");
+    }
+
     fn notify(&self, dest: String, msg: String) {
         let api_key = env_or_fail("SENDGRID_API_KEY");
     

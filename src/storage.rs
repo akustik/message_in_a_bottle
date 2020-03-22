@@ -40,7 +40,7 @@ pub struct BottleMessage {
 
 #[derive(Serialize, Deserialize, Debug, Hash)]
 pub struct BottleDestination {
-    email: String
+    pub email: String
 }
 
 pub trait Storage {

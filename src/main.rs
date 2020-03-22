@@ -14,7 +14,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use hyper::body::Bytes;
 
-use message::DefaultChannel;
+use message::default_channel;
 
 use storage::BottleMessage;
 use storage::BottleDestination;
@@ -72,11 +72,11 @@ async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<B
 
             match parsed {
                 Ok(d) => {
+                    let email = d.email.clone();
                     let result = storage.store_destination_request(d);
                     match result {
                         Ok(_) => {
-                            //TODO: Send the result by email
-                            println!("Sending email with {}", result.unwrap());
+                            default_channel().request_confirmation(email, result.unwrap());
                             build_response(StatusCode::OK, "Registration requested. Check your email!".to_string())
                         },
                         Err(_) => build_response(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong".to_string())
@@ -94,7 +94,7 @@ async fn bottle(req: Request<Body>, storage: &RedisStorage) -> Result<Response<B
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>();
     
-    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, &DefaultChannel{}).expect("Subscribe failed for Storage"));
+    let handle = thread::spawn(move || RedisStorage{}.subscribe(rx, default_channel()).expect("Subscribe failed for Storage"));
     let addr = get_addr_from_args(&env::args().collect());
 
     let storage = Arc::new(RedisStorage{});

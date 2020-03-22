@@ -9,7 +9,9 @@ pub trait NotificationChannel {
 pub use sendgrid::SendGrid as SendGrid;
 pub use mailgun::Mailgun as Mailgun;
 
-pub use Mailgun as DefaultChannel;
+pub fn default_channel() -> &'static dyn NotificationChannel {
+    &Mailgun{}
+}
 
 use reqwest::blocking::ClientBuilder as BlockingClientBuilder;
 
